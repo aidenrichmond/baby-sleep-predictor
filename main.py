@@ -33,12 +33,11 @@ def main():
         # awake duration,
         # minutes since last feed,
         # feed_duration,
-        # feed_amount,
         # average nap length last 3 days,
         # time sin,
         # time cos,
         # naps today,
-        # age days,
+        # age days
         # ]
     ]
 
@@ -60,6 +59,9 @@ def main():
     # Separate sleep and feed data
     sleep_df = df[df["Type"] == "Sleep"].copy()
     feed_df = df[df["Type"] == "Feed"].copy()
+
+    # Remove sleep times under certain amount
+    sleep_df = sleep_df[(pd.to_timedelta(sleep_df["Duration"] + ":00").dt.total_seconds() / 60).astype(int) >= 30]
 
     # Convert dates
     sleep_df["Start"] = pd.to_datetime(sleep_df["Start"])
@@ -106,8 +108,8 @@ def main():
 
         # Get total oz from bottle, 0.0 if none
         # Convert to integer, sum all Amounts, Amounts == 0 if breast fed so nothing has to change otherwise
-        feeds["Amount"] = pd.to_numeric(feeds["Amount"], errors="coerce")
-        feed_amount = feeds[feeds["Notes"] == "Bottle"]["Amount"].sum()
+        #feeds["Amount"] = pd.to_numeric(feeds["Amount"], errors="coerce")
+        #feed_amount = feeds[feeds["Notes"] == "Bottle"]["Amount"].sum()
 
         if len(feeds) > 0:
             feed_duration = feeds["Duration"].apply(to_minutes).sum()
@@ -166,12 +168,12 @@ def main():
             awake_duration.total_seconds() / 60,
             minutes_since_feed,
             feed_duration,
-            feed_amount,
+            #feed_amount,
             average_window_sleep,
             time_sin,
             time_cos,
             previous_naps_today,
-            age_days,
+            age_days
         ]
 
         # Next sleep duration (target)
