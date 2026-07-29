@@ -1,8 +1,8 @@
-from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor
 import pandas as pd
 import numpy as np
 
+# Convert time string to minutes
 def to_minutes(x):
     if pd.isna(x) or x == "":
         return 0.0
@@ -14,30 +14,24 @@ def to_minutes(x):
 
     return pd.to_timedelta(x).total_seconds() / 60
 
-def time_features(timestamp):
-    hour = timestamp.hour + timestamp.minute / 60
-
-    time_sin = np.sin(2 * np.pi * hour / 24)
-    time_cos = np.cos(2 * np.pi * hour / 24)
-
-    return time_sin, time_cos
-
 def main():
     # Load data
     df = pd.read_csv("./baby_data.csv")
 
-    # Features:
+    # Initialize counters for prediction accuracy
+    under_fifteen = 0
+    fifteen_thirty = 0
+    thirty_sixty = 0
+    sixty_plus = 0
+
     X = [
+        # Features:
         # [
+        # current hour,
         # previous sleep duration,
-        # awake duration,
-        # minutes since last feed,
-        # feed_duration,
-        # average nap length last 3 days,
-        # time sin,
-        # time cos,
-        # naps today,
-        # age days
+        # time between last feed and sleep,
+        # total feeding duration,
+        # average sleep duration over previous window
         # ]
     ]
 
@@ -56,137 +50,117 @@ def main():
     # Sort data
     df = df.sort_values("Start")
 
+    # Convert Start and End columns to datetime
+    df["Start"] = pd.to_datetime(df["Start"])
+    df["End"] = pd.to_datetime(df["End"])
+
     # Separate sleep and feed data
     sleep_df = df[df["Type"] == "Sleep"].copy()
     feed_df = df[df["Type"] == "Feed"].copy()
 
     # Remove sleep times under certain amount
-    sleep_df = sleep_df[(pd.to_timedelta(sleep_df["Duration"] + ":00").dt.total_seconds() / 60).astype(int) >= 30]
-
-    # Convert dates
-    sleep_df["Start"] = pd.to_datetime(sleep_df["Start"])
-    sleep_df["End"] = pd.to_datetime(sleep_df["End"])
-    feed_df["Start"] = pd.to_datetime(feed_df["Start"])
-    feed_df["End"] = pd.to_datetime(feed_df["End"])
+    sleep_df = sleep_df[(sleep_df["Duration"].apply(to_minutes) >= 30)]
 
     # Create Date column
     sleep_df["Date"] = sleep_df["Start"].dt.date
-    feed_df["Date"] = feed_df["Start"].dt.date
 
+    # Convert Duration to minutes
     sleep_df["SleepMinutes"] = sleep_df["Duration"].apply(to_minutes)
 
-    if len(sleep_df["Date"].unique()) < 4:
-        print("Need at least 4 days of data")
+    # Check if we have enough data to train the model
+    window = 4
+    if len(sleep_df["Date"].unique()) < window + 1:
+        print(f"Need at least {window+1} days of data")
         return
 
+    # Initialize Random Forest Regressor
     model = RandomForestRegressor(
         n_estimators=100,
         random_state=42
     )
 
-    birth_date = sleep_df["Date"].min()
-
+    # Get unique dates in sorted order
     dates = sorted(sleep_df["Date"].unique())
 
+    # Loop through sleep data to create training examples and make predictions
     for i in range(len(sleep_df) - 1):
 
+        # Skip if we don't have enough previous days to calculate average sleep duration
         current_date = sleep_df.iloc[i]["Date"]
-
         date_index = dates.index(current_date)
-
-        if date_index < 3:
+        if date_index < window:
             continue
 
-        # Current nap starts here
+        # Current sleep start time
         current_sleep_start = sleep_df.iloc[i + 1]["Start"]
 
-        # Find feeds before this nap
+        # Find feeds before this nap and after the last sleep ended
         feeds = feed_df[
-            (feed_df["End"] >= sleep_df.iloc[i]["End"]) &
-            (feed_df["Start"] <= current_sleep_start)
+            (feed_df["Start"] >= sleep_df.iloc[i]["End"]) &
+            (feed_df["End"] <= current_sleep_start)
         ]
 
-        # Get total oz from bottle, 0.0 if none
-        # Convert to integer, sum all Amounts, Amounts == 0 if breast fed so nothing has to change otherwise
-        #feeds["Amount"] = pd.to_numeric(feeds["Amount"], errors="coerce")
-        #feed_amount = feeds[feeds["Notes"] == "Bottle"]["Amount"].sum()
-
+        # Calculate time from last feed to current sleep start
         if len(feeds) > 0:
-            feed_duration = feeds["Duration"].apply(to_minutes).sum()
             last_feed_end = feeds["End"].max()
+
+            feed_to_sleep_time = (
+                current_sleep_start - last_feed_end
+            ).total_seconds() / 60
+
+            feed_duration = feeds["Duration"].apply(to_minutes).sum()
         else:
+            feed_to_sleep_time = -1
             feed_duration = 0.0
-            last_feed_end = current_sleep_start
-
-
-        # Minutes since last feed
-        minutes_since_feed = (
-            current_sleep_start - last_feed_end
-        ).total_seconds() / 60
 
         # Previous sleep duration
         sleep_duration = sleep_df.iloc[i]["Duration"]
 
-        window = 3
+        # Calculate average sleep duration over the previous window of days
+        previous_days = dates[date_index-window:date_index]
 
-        previous_days = dates[
-            dates.index(current_date)-window : dates.index(current_date)
+        # Average sleep durations for the previous days
+        average_window_sleep = sleep_df[
+            sleep_df["Date"].isin(previous_days)
+        ]["SleepMinutes"].mean()
+
+        # Calculate average sleep duration for the current hour based on past data
+        current_hour = current_sleep_start.hour
+
+        # Get past sleep data before the current sleep start time
+        past_sleep = sleep_df[
+            sleep_df["Start"] < current_sleep_start
         ]
 
-        previous_sleep_values = sleep_df[
-            sleep_df["Date"].isin(previous_days)
-        ]["SleepMinutes"]
+        past_sleeps = past_sleep.tail(window)
 
-        average_window_sleep = previous_sleep_values.mean()
-
-        # Awake time between sleeps
-        awake_duration = (
-            sleep_df.iloc[i + 1]["Start"] -
-            sleep_df.iloc[i]["End"]
-        )
-
-        # Time baby fell asleep
-        sleep_start = sleep_df.iloc[i + 1]["Start"]
-
-        time_sin, time_cos = time_features(sleep_start)
-
-        # Number of naps already taken today before this one
-        previous_naps_today = len(
-            sleep_df[
-                (sleep_df["Date"] == current_date) &
-                (sleep_df["Start"] < current_sleep_start)
-            ]
-        )
-
-        age_days = (
-            current_date - birth_date
-        ).days
-
-        # Convert features to numbers
+        # Create new data point for prediction, current MAE = 32.023, baseline MAE = 37.81
         new_data = [
+            current_hour,
             to_minutes(sleep_duration),
-            awake_duration.total_seconds() / 60,
-            minutes_since_feed,
+            feed_to_sleep_time,
             feed_duration,
-            #feed_amount,
-            average_window_sleep,
-            time_sin,
-            time_cos,
-            previous_naps_today,
-            age_days
+            past_sleeps["SleepMinutes"].mean(),
+            average_window_sleep
         ]
 
         # Next sleep duration (target)
         next_sleep_duration = sleep_df.iloc[i + 1]["Duration"]
 
+        # Train the model and make predictions if we have enough training data
         if len(X) >= 20:
-            model.fit(X, y)
 
+            # Train the model and make predictions
+            if len(predictions) % 38 == 0:
+                print(f"{i // 38 * 10}% complete.")
+
+            # Train the model on the current training data
+            model.fit(X, y)
             prediction = model.predict([new_data])
 
             real_time = to_minutes(next_sleep_duration)
 
-            # Baseline prediction: average nap length from previous 3 days
+            # Baseline prediction: average nap length from previous {window} days
             baseline_prediction = average_window_sleep
 
             baseline_diff = baseline_prediction - real_time
@@ -206,11 +180,20 @@ def main():
                 new_data
             ])
 
-            if abs(diff[0]) > 90:
+            difference = abs(diff[0])
+
+            if difference <= 15:
+                under_fifteen += 1
+            elif difference <= 30:
+                fifteen_thirty += 1
+            elif difference <= 60:
+                thirty_sixty += 1
+            else:
                 print("BAD PREDICTION")
                 print("Predicted:", prediction[0])
                 print("Actual:", real_time)
                 print("Features:", new_data)
+                sixty_plus += 1
 
         # Add training example
         X.append(new_data)
@@ -247,6 +230,10 @@ def main():
         np.max(np.abs(errors))
     )
 
+    print("Within 15 minutes:", under_fifteen)
+    print("Within 16-30 minutes:", fifteen_thirty)
+    print("Within 31-60 minutes:", thirty_sixty)
+    print("Beyond 60 minutes:", sixty_plus)
 
 if __name__ == "__main__":
     main()
