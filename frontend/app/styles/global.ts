@@ -2,7 +2,8 @@ import { StyleSheet } from "react-native";
 
 export const colors = {
     background: "#ffffff",
-    text: "#6b6d80"
+    // text: "#6b6d80"
+    text: "#4bd600"
 }
 export const globalStyles = StyleSheet.create({
     container: {
