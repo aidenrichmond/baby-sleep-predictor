@@ -49,3 +49,5 @@ yarn-error.*
 
 # temporary files
 *.log
+
+app-example/
