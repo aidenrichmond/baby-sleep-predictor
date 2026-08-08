@@ -51,3 +51,4 @@ yarn-error.*
 *.log
 
 app-example/
+app/timer.tsx

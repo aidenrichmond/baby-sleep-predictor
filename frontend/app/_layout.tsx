@@ -7,7 +7,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     async function checkOnboarding() {
-      await AsyncStorage.clear(); // REMOVE THIS WHEN DONE TESTING
+      // await AsyncStorage.clear(); // REMOVE THIS WHEN DONE TESTING
       const value = await AsyncStorage.getItem("onboardingComplete");
       setOnboarded(value === "true");
     }
@@ -15,14 +15,13 @@ export default function RootLayout() {
     checkOnboarding();
   }, []);
 
-  
   useEffect(() => {
     if (onboarded === null) return;
 
     if (onboarded) {
       router.replace("/(tabs)");
     } else {
-      router.replace("/onboarding");
+      router.replace("/getStarted");
     }
   }, [onboarded]);
 
@@ -31,14 +30,28 @@ export default function RootLayout() {
   }
 
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        animation: "none",
-      }}
-    >
-      <Stack.Screen name="onboarding" />
-      <Stack.Screen name="(tabs)" />
+    <Stack screenOptions={{ animation: "none" }}>
+      <Stack.Screen
+        name="getStarted"
+        options={{ headerShown: false }}
+      />
+
+      <Stack.Screen
+        name="onboarding"
+        options={{ headerShown: false }}
+      />
+
+      <Stack.Screen
+        name="(tabs)"
+        options={{ headerShown: false }}
+      />
+
+      <Stack.Screen
+        name="settings"
+        options={{
+          headerShown: false,
+        }}
+      />
     </Stack>
   );
 }
